@@ -55,3 +55,7 @@ The early boot map deliberately uses a minimal three-level, 39-bit regime with t
 | `0x4000_0000–0x7fff_ffff` | Normal WBWA | QEMU RAM and the directly loaded kernel |
 
 `MAIR_EL1`, `TCR_EL1`, and `TTBR0_EL1` are programmed before `SCTLR_EL1.M/C/I` are enabled. This identity map is a safe bring-up map, not the final isolation layout. The next stage replaces the broad executable RAM block with fine-grained W^X mappings and assigns each EL0 task its own table root and ASID.
+
+## Interrupt path
+
+QEMU `virt` is pinned to GICv2 for a stable teaching target. Boot resets distributor enable, pending, priority, and trigger state; enables virtual-timer PPI 27; configures the CPU interface; then programs `CNTV_CVAL_EL0`. The current-EL-with-SPx IRQ vector saves `x0–x30`, calls the Rust dispatcher, restores the complete frame, and executes `eret`. The timer is disabled after the third CI-observed tick so the proof transcript is deterministic.
