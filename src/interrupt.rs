@@ -80,6 +80,10 @@ pub fn stop_timer() {
     }
 }
 
+pub fn ticks() -> u64 {
+    TIMER_TICKS.load(Ordering::Relaxed)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Interrupt {
     Timer { ticks: u64 },

@@ -38,12 +38,57 @@ _start:
     str xzr, [x0], #8
     b .Lclear_bss
 .Lbss_ready:
-    // Early 39-bit stage-1 map. L1[0] covers devices, L1[1] covers RAM.
+    // Early 39-bit stage-1 map. L1[0] covers devices. RAM uses L2/L3
+    // tables so the EL0 demo receives only its code and stack pages.
     ldr x0, =__boot_l1_table
     ldr x1, =0x0060000000000401
     str x1, [x0]
-    ldr x1, =0x0000000040000705
+    ldr x1, =__boot_l2_table
+    orr x1, x1, #3
     str x1, [x0, #8]
+
+    ldr x2, =__boot_l3_table
+    orr x1, x2, #3
+    ldr x3, =__boot_l2_table
+    str x1, [x3]
+
+    // Kernel-only 4 KiB mappings for the first 2 MiB of RAM.
+    mov x3, #0
+    ldr x4, =0x40000707
+.Lmap_l3:
+    str x4, [x2, x3, lsl #3]
+    add x4, x4, #0x1000
+    add x3, x3, #1
+    cmp x3, #512
+    b.ne .Lmap_l3
+
+    // User text: EL0 read/execute, EL1 execute-never.
+    ldr x4, =__user_text_start
+    ldr x6, =0x40000000
+    sub x3, x4, x6
+    lsr x3, x3, #12
+    ldr x5, =0x00200000000007c7
+    orr x5, x4, x5
+    str x5, [x2, x3, lsl #3]
+
+    // User stack: EL0 read/write, never executable.
+    ldr x4, =__user_stack_bottom
+    sub x3, x4, x6
+    lsr x3, x3, #12
+    ldr x5, =0x0060000000000747
+    orr x5, x4, x5
+    str x5, [x2, x3, lsl #3]
+
+    // Remaining RAM uses kernel-only 2 MiB blocks.
+    ldr x3, =__boot_l2_table
+    mov x4, #1
+    ldr x5, =0x0060000040200705
+.Lmap_l2:
+    str x5, [x3, x4, lsl #3]
+    add x5, x5, #0x200000
+    add x4, x4, #1
+    cmp x4, #512
+    b.ne .Lmap_l2
 
     ldr x1, =0x000000000000ff00
     msr mair_el1, x1
@@ -76,4 +121,10 @@ __boot_stack_top:
 .align 12
 .global __boot_l1_table
 __boot_l1_table:
+    .skip 4096
+.global __boot_l2_table
+__boot_l2_table:
+    .skip 4096
+.global __boot_l3_table
+__boot_l3_table:
     .skip 4096

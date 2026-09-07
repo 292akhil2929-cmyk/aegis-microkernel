@@ -15,6 +15,7 @@ use aegis_microkernel::syscall::authorize_endpoint;
 
 global_asm!(include_str!("boot.S"));
 global_asm!(include_str!("vectors.S"));
+global_asm!(include_str!("user.S"));
 
 const PL011_BASE: usize = 0x0900_0000;
 
@@ -51,6 +52,8 @@ macro_rules! println {
 
 unsafe extern "C" {
     static __exception_vectors: u8;
+    static __user_after_fault: u8;
+    fn launch_user_demo() -> !;
 }
 
 #[unsafe(no_mangle)]
@@ -151,10 +154,11 @@ pub extern "C" fn kernel_main() -> ! {
     println!("[timer] enabling GICv2 virtual timer at 10 Hz");
     interrupt::init(10);
     println!("[ready] milestone 3 interrupt bring-up; waiting for timer IRQs");
-
-    loop {
+    while interrupt::ticks() < 3 {
         unsafe { asm!("wfi") };
     }
+    println!("[el0] entering sandbox with isolated code and stack pages");
+    unsafe { launch_user_demo() }
 }
 
 #[unsafe(no_mangle)]
@@ -169,6 +173,31 @@ pub extern "C" fn irq_dispatch() {
             interrupt::stop_timer();
             println!("[irq] unexpected interrupt id={}", id);
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn lower_sync_dispatch() {
+    let esr: u64;
+    unsafe { asm!("mrs {value}, ESR_EL1", value = out(reg) esr) };
+    match esr >> 26 {
+        0x15 => {
+            let immediate = esr & 0xffff;
+            if immediate == 0 {
+                println!("[el0] SVC yield round-trip: PASS");
+            } else if immediate == 2 {
+                println!("[el0] sandbox exception recovery: PASS");
+                println!("[ready] milestone 4 EL0 isolation proof complete");
+                loop {
+                    unsafe { asm!("wfe") };
+                }
+            }
+        }
+        0x24 => unsafe {
+            println!("[el0] direct PL011 access: DENIED by stage-1 MMU");
+            asm!("msr ELR_EL1, {value}", value = in(reg) &__user_after_fault);
+        },
+        _ => exception_report(8, esr, 0),
     }
 }
 
