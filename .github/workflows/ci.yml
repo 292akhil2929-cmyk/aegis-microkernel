@@ -1,0 +1,36 @@
+name: kernel-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-none-softfloat
+      - name: Host mechanism tests
+        run: cargo test --target x86_64-unknown-linux-gnu --lib
+      - name: ARM64 release kernel
+        run: cargo build --release
+      - name: Boot smoke test on QEMU virt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm
+          set +e
+          timeout 8s qemu-system-aarch64 \
+            -M virt,gic-version=2 -cpu cortex-a72 -m 256M -smp 1 \
+            -nographic -monitor none -serial stdio \
+            -kernel target/aarch64-unknown-none-softfloat/release/aegis-kernel \
+            | tee qemu-boot.log
+          set -e
+          grep -F '[Aegis] Hello from the kernel' qemu-boot.log
+          grep -F '[caps] sandbox UART capability: DENIED' qemu-boot.log
+          grep -F '[ipc] synchronous rendezvous self-test: PASS' qemu-boot.log
+      - name: Linker and formatting checks
+        run: |
+          cargo fmt -- --check
+          git diff --check
