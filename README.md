@@ -4,19 +4,24 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel boots at EL1, installs a complete AArch64 exception-vector table, writes through the QEMU PL011, and runs the same fixed-capacity capability and synchronous rendezvous cores that are host-tested. MMU, EL0 task launch, GIC/timer scheduling, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
+> Current milestone: the kernel boots at EL1, enables an early stage-1 MMU map, installs a complete AArch64 exception-vector table, writes through the QEMU PL011, and runs the same allocator, mapping-policy, capability, syscall-authorization, scheduler, and synchronous-rendezvous cores that are host-tested. EL0 task launch, hardware page-table materialization per task, GIC/timer preemption, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
 
 ## What is working
 
 - AArch64 reset entry with EL2-to-EL1 transition and a 16 KiB boot stack.
 - Custom linker script at QEMU's `0x4008_0000` direct-kernel load address.
 - PL011 serial output at `0x0900_0000`.
+- Active 39-bit, 4 KiB-granule stage-1 translation with separate Device and Normal memory attributes.
 - 16-entry, 2 KiB-aligned EL1 exception-vector table with ESR/ELR reporting.
+- Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
+- W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
 - Rights-attenuating mint and complete derivation-subtree revocation.
 - Generation-protected stale capability references.
 - Four-register synchronous rendezvous model whose endpoints queue only thread IDs.
-- Host unit tests demonstrating denial without authority, attenuation, revocation, and both rendezvous orders.
+- Capability-authorized syscall decoding for endpoint and frame operations.
+- Fixed-capacity task contexts and a round-robin scheduler that skips blocked tasks.
+- Host unit tests demonstrating allocation safety, W^X, scheduling fairness, denial without authority, attenuation, revocation, typed syscalls, and both rendezvous orders.
 
 See [the architecture](docs/ARCHITECTURE.md) and [the semester gates](docs/ROADMAP.md).
 
@@ -40,10 +45,14 @@ Expected serial output:
 [Aegis] Hello from the kernel
 [boot] AArch64 EL1 | QEMU virt | PL011 @ 0x09000000
 [boot] exception vectors installed
+[mmu] stage-1 identity map: ON
+[memory] frame allocator + W^X descriptor: PASS
 [caps] console UART capability: GRANTED
 [caps] sandbox UART capability: DENIED
 [ipc] synchronous rendezvous self-test: PASS
-[ready] milestone 1 complete; waiting for interrupts
+[syscall] typed endpoint authorization: PASS
+[sched] round-robin policy self-test: PASS
+[ready] milestone 2 foundations complete; waiting for interrupts
 ```
 
 Exit QEMU with `Ctrl+A`, then `X`.

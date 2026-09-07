@@ -28,8 +28,12 @@ jobs:
             | tee qemu-boot.log
           set -e
           grep -F '[Aegis] Hello from the kernel' qemu-boot.log
+          grep -F '[mmu] stage-1 identity map: ON' qemu-boot.log
+          grep -F '[memory] frame allocator + W^X descriptor: PASS' qemu-boot.log
           grep -F '[caps] sandbox UART capability: DENIED' qemu-boot.log
           grep -F '[ipc] synchronous rendezvous self-test: PASS' qemu-boot.log
+          grep -F '[syscall] typed endpoint authorization: PASS' qemu-boot.log
+          grep -F '[sched] round-robin policy self-test: PASS' qemu-boot.log
       - name: Linker and formatting checks
         run: |
           cargo fmt -- --check

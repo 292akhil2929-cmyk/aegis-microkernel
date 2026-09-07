@@ -43,5 +43,15 @@ QEMU `-kernel` -> `_start` at 0x4008_0000
 
 ## Kernel / user boundary
 
-The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements and tests the boot path plus the capability and rendezvous cores; EL0 tasks, MMU, GIC, and timer switching are explicit next milestones.
+The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements the early hardware MMU map and tests the physical allocator, mapping policy, task scheduler, typed syscall authorization, capability system, and rendezvous core. Per-task hardware tables, EL0 entry, GIC, and timer-driven context switching are explicit next milestones.
 
+## Memory bring-up
+
+The early boot map deliberately uses a minimal three-level, 39-bit regime with two 1 GiB level-1 blocks:
+
+| Virtual/physical range | Attribute | Purpose |
+|---|---|---|
+| `0x0000_0000–0x3fff_ffff` | Device-nGnRnE, XN | QEMU `virt` MMIO including PL011 |
+| `0x4000_0000–0x7fff_ffff` | Normal WBWA | QEMU RAM and the directly loaded kernel |
+
+`MAIR_EL1`, `TCR_EL1`, and `TTBR0_EL1` are programmed before `SCTLR_EL1.M/C/I` are enabled. This identity map is a safe bring-up map, not the final isolation layout. The next stage replaces the broad executable RAM block with fine-grained W^X mappings and assigns each EL0 task its own table root and ASID.
