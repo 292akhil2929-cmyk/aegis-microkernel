@@ -7,6 +7,10 @@ use core::panic::PanicInfo;
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
 use aegis_microkernel::ipc::{IpcOutcome, Message, RendezvousIpc};
+use aegis_microkernel::memory::{FrameAllocator, PAGE_SIZE};
+use aegis_microkernel::paging::{PagePermissions, page_descriptor};
+use aegis_microkernel::scheduler::{Scheduler, UserContext};
+use aegis_microkernel::syscall::authorize_endpoint;
 
 global_asm!(include_str!("boot.S"));
 global_asm!(include_str!("vectors.S"));
@@ -58,6 +62,25 @@ pub extern "C" fn kernel_main() -> ! {
     println!("\n[Aegis] Hello from the kernel");
     println!("[boot] AArch64 EL1 | QEMU virt | PL011 @ 0x09000000");
     println!("[boot] exception vectors installed");
+    let sctlr: u64;
+    unsafe { asm!("mrs {value}, SCTLR_EL1", value = out(reg) sctlr) };
+    println!(
+        "[mmu] stage-1 identity map: {}",
+        if sctlr & 1 != 0 { "ON" } else { "OFF" }
+    );
+
+    let mut frames = FrameAllocator::<1>::new(0x4100_0000, 8 * PAGE_SIZE).unwrap();
+    frames.reserve(0x4100_0000, 2).unwrap();
+    let frame_allocator_ok = frames.allocate().unwrap().physical_address == 0x4100_2000;
+    let descriptor_ok = page_descriptor(0x4100_2000, PagePermissions::USER_DATA).is_ok();
+    println!(
+        "[memory] frame allocator + W^X descriptor: {}",
+        if frame_allocator_ok && descriptor_ok {
+            "PASS"
+        } else {
+            "FAIL"
+        }
+    );
 
     let mut caps = CapabilitySystem::<4, 8, 16>::new();
     let uart = Object::Mmio {
@@ -66,6 +89,9 @@ pub extern "C" fn kernel_main() -> ! {
     };
     caps.create_root(0, 0, uart, Rights::ALL).unwrap();
     caps.mint(0, 0, 1, 0, Rights::WRITE).unwrap();
+    caps.create_root(0, 1, Object::Endpoint(0), Rights::ALL)
+        .unwrap();
+    caps.mint(0, 1, 2, 1, Rights::WRITE).unwrap();
     let console_has_uart = caps.resolve(1, 0, Rights::WRITE).is_ok();
     let sandbox_has_uart = caps.resolve(2, 0, Rights::WRITE).is_ok();
     println!(
@@ -103,7 +129,25 @@ pub extern "C" fn kernel_main() -> ! {
             "FAIL"
         }
     );
-    println!("[ready] milestone 1 complete; waiting for interrupts");
+
+    let syscall_authorized = authorize_endpoint(&caps, 2, 1, Rights::WRITE) == Ok(0)
+        && authorize_endpoint(&caps, 2, 0, Rights::WRITE).is_err();
+    println!(
+        "[syscall] typed endpoint authorization: {}",
+        if syscall_authorized { "PASS" } else { "FAIL" }
+    );
+
+    let mut scheduler = Scheduler::<4>::new();
+    let first = scheduler.spawn(UserContext::empty()).unwrap();
+    let second = scheduler.spawn(UserContext::empty()).unwrap();
+    let schedule_ok = scheduler.schedule().map(|switch| switch.next) == Some(first)
+        && scheduler.schedule().map(|switch| switch.next) == Some(second)
+        && scheduler.schedule().map(|switch| switch.next) == Some(first);
+    println!(
+        "[sched] round-robin policy self-test: {}",
+        if schedule_ok { "PASS" } else { "FAIL" }
+    );
+    println!("[ready] milestone 2 foundations complete; waiting for interrupts");
 
     loop {
         unsafe { asm!("wfe") };

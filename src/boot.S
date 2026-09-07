@@ -35,6 +35,29 @@ _start:
     str xzr, [x0], #8
     b .Lclear_bss
 .Lbss_ready:
+    // Early 39-bit stage-1 map. L1[0] covers devices, L1[1] covers RAM.
+    ldr x0, =__boot_l1_table
+    ldr x1, =0x0060000000000401
+    str x1, [x0]
+    ldr x1, =0x0000000040000705
+    str x1, [x0, #8]
+
+    ldr x1, =0x000000000000ff00
+    msr mair_el1, x1
+    ldr x1, =0x0000000200803519
+    msr tcr_el1, x1
+    msr ttbr0_el1, x0
+    dsb ish
+    tlbi vmalle1
+    dsb ish
+    isb
+    mrs x1, sctlr_el1
+    orr x1, x1, #1
+    orr x1, x1, #4
+    orr x1, x1, #0x1000
+    msr sctlr_el1, x1
+    isb
+
     bl kernel_main
 1:  wfe
     b 1b
@@ -45,3 +68,9 @@ __boot_stack_bottom:
     .skip 16384
 .global __boot_stack_top
 __boot_stack_top:
+
+.section .bss.page_tables, "aw", %nobits
+.align 12
+.global __boot_l1_table
+__boot_l1_table:
+    .skip 4096
