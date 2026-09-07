@@ -6,6 +6,7 @@ use core::fmt::{self, Write};
 use core::panic::PanicInfo;
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
+use aegis_microkernel::interrupt::{self, Interrupt};
 use aegis_microkernel::ipc::{IpcOutcome, Message, RendezvousIpc};
 use aegis_microkernel::memory::{FrameAllocator, PAGE_SIZE};
 use aegis_microkernel::paging::{PagePermissions, page_descriptor};
@@ -147,10 +148,27 @@ pub extern "C" fn kernel_main() -> ! {
         "[sched] round-robin policy self-test: {}",
         if schedule_ok { "PASS" } else { "FAIL" }
     );
-    println!("[ready] milestone 2 foundations complete; waiting for interrupts");
+    println!("[timer] enabling GICv2 physical timer at 10 Hz");
+    interrupt::init(10);
+    println!("[ready] milestone 3 interrupt bring-up; waiting for timer IRQs");
 
     loop {
         unsafe { asm!("wfe") };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn irq_dispatch() {
+    match interrupt::acknowledge() {
+        Interrupt::Timer { ticks: 3 } => {
+            interrupt::stop_timer();
+            println!("[timer] EL1 IRQ delivery: PASS (3 ticks)");
+        }
+        Interrupt::Timer { .. } => {}
+        Interrupt::Unknown { id } => {
+            interrupt::stop_timer();
+            println!("[irq] unexpected interrupt id={}", id);
+        }
     }
 }
 
