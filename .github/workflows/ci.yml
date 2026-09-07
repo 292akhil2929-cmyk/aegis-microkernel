@@ -34,6 +34,7 @@ jobs:
           grep -F '[ipc] synchronous rendezvous self-test: PASS' qemu-boot.log
           grep -F '[syscall] typed endpoint authorization: PASS' qemu-boot.log
           grep -F '[sched] round-robin policy self-test: PASS' qemu-boot.log
+          grep -F '[timer] EL1 IRQ delivery: PASS (3 ticks)' qemu-boot.log
       - name: Linker and formatting checks
         run: |
           cargo fmt -- --check

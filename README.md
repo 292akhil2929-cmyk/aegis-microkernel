@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel boots at EL1, enables an early stage-1 MMU map, installs a complete AArch64 exception-vector table, writes through the QEMU PL011, and runs the same allocator, mapping-policy, capability, syscall-authorization, scheduler, and synchronous-rendezvous cores that are host-tested. EL0 task launch, hardware page-table materialization per task, GIC/timer preemption, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
+> Current milestone: the kernel boots at EL1, enables an early stage-1 MMU map, installs a complete AArch64 exception-vector table, receives periodic GICv2 generic-timer IRQs, and runs the same allocator, mapping-policy, capability, syscall-authorization, scheduler, and synchronous-rendezvous cores that are host-tested. EL0 task launch, hardware page-table materialization per task, scheduler-driven context switching, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
 
 ## What is working
 
@@ -13,6 +13,8 @@
 - PL011 serial output at `0x0900_0000`.
 - Active 39-bit, 4 KiB-granule stage-1 translation with separate Device and Normal memory attributes.
 - 16-entry, 2 KiB-aligned EL1 exception-vector table with ESR/ELR reporting.
+- GICv2 CPU/distributor initialization and 10 Hz ARM physical-timer interrupts.
+- IRQ entry preserves all 31 general-purpose registers before Rust dispatch and returns with `eret`.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
@@ -52,7 +54,9 @@ Expected serial output:
 [ipc] synchronous rendezvous self-test: PASS
 [syscall] typed endpoint authorization: PASS
 [sched] round-robin policy self-test: PASS
-[ready] milestone 2 foundations complete; waiting for interrupts
+[timer] enabling GICv2 physical timer at 10 Hz
+[ready] milestone 3 interrupt bring-up; waiting for timer IRQs
+[timer] EL1 IRQ delivery: PASS (3 ticks)
 ```
 
 Exit QEMU with `Ctrl+A`, then `X`.
