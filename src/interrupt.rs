@@ -16,10 +16,13 @@ pub fn init(periodic_hz: u64) {
         let group = read32(GICD_BASE + 0x080);
         write32(GICD_BASE + 0x080, group | (1 << VIRTUAL_TIMER_PPI));
         write32(GICD_BASE + 0x100, 1 << VIRTUAL_TIMER_PPI);
-        write32(GICD_BASE, 1);
+        // Enable both groups. With security extensions disabled, bit 0 is the
+        // single enable; with them present, bit 1 admits our Group 1 PPI.
+        write32(GICD_BASE, 0b11);
 
         write32(GICC_BASE + 0x004, 0xff);
-        write32(GICC_BASE, 1);
+        write32(GICC_BASE + 0x008, 0);
+        write32(GICC_BASE, 0b11);
 
         let frequency: u64;
         asm!("mrs {value}, CNTFRQ_EL0", value = out(reg) frequency);

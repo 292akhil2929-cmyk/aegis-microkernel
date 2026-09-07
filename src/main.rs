@@ -153,7 +153,7 @@ pub extern "C" fn kernel_main() -> ! {
     println!("[ready] milestone 3 interrupt bring-up; waiting for timer IRQs");
 
     loop {
-        unsafe { asm!("wfe") };
+        unsafe { asm!("wfi") };
     }
 }
 
