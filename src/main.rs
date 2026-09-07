@@ -53,6 +53,10 @@ macro_rules! println {
 unsafe extern "C" {
     static __exception_vectors: u8;
     static __user_after_fault: u8;
+    static __user_a_resumed: u8;
+    static __user_b_entry: u8;
+    static __user_stack_a_top: u8;
+    static __user_stack_b_top: u8;
     fn launch_user_demo() -> !;
 }
 
@@ -177,7 +181,7 @@ pub extern "C" fn irq_dispatch() {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn lower_sync_dispatch() {
+pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
     let esr: u64;
     unsafe { asm!("mrs {value}, ESR_EL1", value = out(reg) esr) };
     match esr >> 26 {
@@ -185,6 +189,22 @@ pub extern "C" fn lower_sync_dispatch() {
             let immediate = esr & 0xffff;
             if immediate == 0 {
                 println!("[el0] SVC yield round-trip: PASS");
+            } else if immediate == 1 {
+                let byte = unsafe { core::ptr::read(frame) as u8 };
+                Uart.putc(byte);
+                println!(" <- [console] mediated EL0 print: PASS");
+            } else if immediate == 10 {
+                unsafe {
+                    asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_b_top);
+                    asm!("msr ELR_EL1, {value}", value = in(reg) &__user_b_entry);
+                }
+                println!("[sched] cooperative context A -> B: PASS");
+            } else if immediate == 11 {
+                unsafe {
+                    asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
+                    asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_resumed);
+                }
+                println!("[sched] cooperative context B -> A: PASS");
             } else if immediate == 2 {
                 println!("[el0] sandbox exception recovery: PASS");
                 println!("[ready] milestone 4 EL0 isolation proof complete");

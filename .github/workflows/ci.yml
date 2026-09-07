@@ -36,6 +36,9 @@ jobs:
           grep -F '[sched] round-robin policy self-test: PASS' qemu-boot.log
           grep -F '[timer] EL1 IRQ delivery: PASS (3 ticks)' qemu-boot.log
           grep -F '[el0] SVC yield round-trip: PASS' qemu-boot.log
+          grep -F '[sched] cooperative context A -> B: PASS' qemu-boot.log
+          grep -F '[sched] cooperative context B -> A: PASS' qemu-boot.log
+          grep -F '[console] mediated EL0 print: PASS' qemu-boot.log
           grep -F '[el0] direct PL011 access: DENIED by stage-1 MMU' qemu-boot.log
           grep -F '[ready] milestone 4 EL0 isolation proof complete' qemu-boot.log
       - name: Linker and formatting checks

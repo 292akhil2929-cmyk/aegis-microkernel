@@ -72,7 +72,13 @@ _start:
     str x5, [x2, x3, lsl #3]
 
     // User stack: EL0 read/write, never executable.
-    ldr x4, =__user_stack_bottom
+    ldr x4, =__user_stack_a_bottom
+    sub x3, x4, x6
+    lsr x3, x3, #12
+    ldr x5, =0x0060000000000747
+    orr x5, x4, x5
+    str x5, [x2, x3, lsl #3]
+    ldr x4, =__user_stack_b_bottom
     sub x3, x4, x6
     lsr x3, x3, #12
     ldr x5, =0x0060000000000747

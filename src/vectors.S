@@ -98,6 +98,7 @@ vector_sync_lower_a64:
     stp x26, x27, [sp, #208]
     stp x28, x29, [sp, #224]
     str x30, [sp, #240]
+    mov x0, sp
     bl lower_sync_dispatch
     ldp x0, x1, [sp, #0]
     ldp x2, x3, [sp, #16]

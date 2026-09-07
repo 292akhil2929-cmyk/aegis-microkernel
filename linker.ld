@@ -34,9 +34,12 @@ SECTIONS
     }
 
     .user_stack (NOLOAD) : ALIGN(0x1000) {
-        __user_stack_bottom = .;
+        __user_stack_a_bottom = .;
         . += 4096;
-        __user_stack_top = .;
+        __user_stack_a_top = .;
+        __user_stack_b_bottom = .;
+        . += 4096;
+        __user_stack_b_top = .;
     }
 
     __kernel_end = ALIGN(0x1000);
