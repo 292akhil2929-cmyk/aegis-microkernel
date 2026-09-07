@@ -1,5 +1,7 @@
 # Aegis microkernel
 
+[![kernel-ci](https://github.com/292akhil2929-cmyk/aegis-microkernel/actions/workflows/ci.yml/badge.svg)](https://github.com/292akhil2929-cmyk/aegis-microkernel/actions/workflows/ci.yml)
+
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
 > Current milestone: the kernel boots at EL1, installs a complete AArch64 exception-vector table, writes through the QEMU PL011, and runs the same fixed-capacity capability and synchronous rendezvous cores that are host-tested. MMU, EL0 task launch, GIC/timer scheduling, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
@@ -17,6 +19,10 @@
 - Host unit tests demonstrating denial without authority, attenuation, revocation, and both rendezvous orders.
 
 See [the architecture](docs/ARCHITECTURE.md) and [the semester gates](docs/ROADMAP.md).
+
+## Verification
+
+CI performs three distinct checks on every push: five host-side mechanism tests, an optimized ARM64 cross-build, and a real QEMU `virt` boot whose UART transcript must contain the kernel banner, sandbox denial, and rendezvous `PASS` line. This is milestone evidence, not a claim that later roadmap phases are implemented.
 
 ## Build
 
