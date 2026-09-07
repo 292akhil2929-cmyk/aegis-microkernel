@@ -7,6 +7,7 @@ __user_entry:
 
 .global __user_a_resumed
 __user_a_resumed:
+    svc #12
     ldr x1, =0x09000000
     mov w0, #0x41
     str w0, [x1]

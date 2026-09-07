@@ -4,7 +4,7 @@
 use core::arch::{asm, global_asm};
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
 use aegis_microkernel::interrupt::{self, Interrupt};
@@ -23,6 +23,7 @@ const APP_TASK: usize = 0;
 const CONSOLE_TASK: usize = 1;
 static CURRENT_USER_TASK: AtomicUsize = AtomicUsize::new(APP_TASK);
 static PENDING_CONSOLE_BYTE: AtomicU64 = AtomicU64::new(0);
+static CONSOLE_GRANT_ACTIVE: AtomicBool = AtomicBool::new(true);
 
 struct Uart;
 
@@ -213,8 +214,16 @@ pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
                         asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_resumed);
                     }
                     println!("[ipc] console Reply -> app resume: PASS");
+                    CONSOLE_GRANT_ACTIVE.store(false, Ordering::Release);
+                    println!("[caps] root revoked console grant subtree: PASS");
                 } else {
                     println!("[console-server] unauthorized caller: DENIED");
+                }
+            } else if immediate == 12 {
+                if CONSOLE_GRANT_ACTIVE.load(Ordering::Acquire) {
+                    println!("[caps] revoked call unexpectedly authorized: FAIL");
+                } else {
+                    println!("[caps] post-revocation console Call: DENIED");
                 }
             } else if immediate == 2 {
                 println!("[el0] sandbox exception recovery: PASS");

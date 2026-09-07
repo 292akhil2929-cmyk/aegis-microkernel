@@ -39,6 +39,8 @@ jobs:
           grep -F '[ipc] app Call -> console Receive: PASS' qemu-boot.log
           grep -F '[console-server] capability-authorized write: PASS' qemu-boot.log
           grep -F '[ipc] console Reply -> app resume: PASS' qemu-boot.log
+          grep -F '[caps] root revoked console grant subtree: PASS' qemu-boot.log
+          grep -F '[caps] post-revocation console Call: DENIED' qemu-boot.log
           grep -F '[el0] direct PL011 access: DENIED by stage-1 MMU' qemu-boot.log
           grep -F '[ready] milestone 4 EL0 isolation proof complete' qemu-boot.log
       - name: Linker and formatting checks

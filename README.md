@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel launches an EL0 app and console-server context with separate stacks. The app performs a synchronous Call carrying a byte; the console server is the only accepted UART writer and replies to resume the app. Direct app access to PL011 remains hardware-denied. Per-task ASIDs/table roots, queued multi-client endpoints, and timer-driven context switching remain roadmap work.
+> Current milestone: the EL0 app completes a console Call/Reply, the root authority then revokes that grant, and an identical retry is denied before server dispatch. Direct app access to PL011 remains hardware-denied. Per-task ASIDs/table roots, queued multi-client endpoints, and timer-driven context switching remain roadmap work.
 
 ## What is working
 
@@ -68,6 +68,8 @@ Expected serial output:
 [ipc] app Call -> console Receive: PASS
 A <- [console-server] capability-authorized write: PASS
 [ipc] console Reply -> app resume: PASS
+[caps] root revoked console grant subtree: PASS
+[caps] post-revocation console Call: DENIED
 [el0] direct PL011 access: DENIED by stage-1 MMU
 [el0] sandbox exception recovery: PASS
 [ready] milestone 4 EL0 isolation proof complete
