@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel boots at EL1, enables page-level stage-1 mappings, receives GICv2 timer IRQs, and launches two EL0 execution contexts with separate stacks. Cooperative syscalls switch A→B→A, and task A prints through a mediated console call while direct PL011 access is denied by hardware. Per-task ASIDs/table roots, timer-driven context switching, and a true EL0 console-server loop remain roadmap work.
+> Current milestone: the kernel launches an EL0 app and console-server context with separate stacks. The app performs a synchronous Call carrying a byte; the console server is the only accepted UART writer and replies to resume the app. Direct app access to PL011 remains hardware-denied. Per-task ASIDs/table roots, queued multi-client endpoints, and timer-driven context switching remain roadmap work.
 
 ## What is working
 
@@ -19,7 +19,8 @@
 - Lower-EL synchronous exception frame handling for `SVC` and data aborts.
 - Hardware demonstration that EL0 cannot access the kernel-owned PL011 mapping.
 - Two EL0 contexts with separate stacks and a verified cooperative A→B→A switch.
-- Mediated EL0 console output through the syscall boundary.
+- Synchronous EL0 app→console Call/Receive and console→app Reply flow.
+- Console writes restricted to the server execution identity.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
@@ -64,9 +65,9 @@ Expected serial output:
 [timer] EL1 IRQ delivery: PASS (3 ticks)
 [el0] entering sandbox with isolated code and stack pages
 [el0] SVC yield round-trip: PASS
-[sched] cooperative context A -> B: PASS
-[sched] cooperative context B -> A: PASS
-A <- [console] mediated EL0 print: PASS
+[ipc] app Call -> console Receive: PASS
+A <- [console-server] capability-authorized write: PASS
+[ipc] console Reply -> app resume: PASS
 [el0] direct PL011 access: DENIED by stage-1 MMU
 [el0] sandbox exception recovery: PASS
 [ready] milestone 4 EL0 isolation proof complete
