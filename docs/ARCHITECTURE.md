@@ -63,3 +63,5 @@ QEMU `virt` is pinned to GICv2 for a stable teaching target. Boot resets distrib
 ## EL0 isolation proof
 
 The first 2 MiB of RAM is split into 4 KiB L3 pages. Kernel pages remain privileged; the demo task receives one read/execute code page and one read/write, execute-never stack page. `eret` enters EL0t with `SP_EL0` and `ELR_EL1` initialized. An `SVC` returns through the lower-AArch64 synchronous vector. A subsequent store to the privileged PL011 device mapping produces an EL0 data abort; EL1 records the denial, redirects `ELR_EL1` to the recovery label, and safely returns to the sandbox.
+
+Milestone 5 maps a second user stack and demonstrates an A→B→A cooperative switch by changing `SP_EL0` and `ELR_EL1` during `SVC` dispatch. The complete exception frame remains preserved on the kernel stack. A console syscall reads the caller's saved `x0` and performs the privileged UART write on its behalf. This is a mechanism proof; moving that policy and UART ownership into a real EL0 server is the next architectural step.

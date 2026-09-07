@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel boots at EL1, enables page-level stage-1 mappings, receives periodic GICv2 timer IRQs, and launches an EL0 sandbox with only a user-code page and stack page. The sandbox completes an `SVC` round trip, while a direct PL011 write is denied by hardware and recovered through the lower-EL exception path. Per-task ASIDs/table roots, scheduler-driven task switching, and user-space servers remain roadmap work.
+> Current milestone: the kernel boots at EL1, enables page-level stage-1 mappings, receives GICv2 timer IRQs, and launches two EL0 execution contexts with separate stacks. Cooperative syscalls switch A→B→A, and task A prints through a mediated console call while direct PL011 access is denied by hardware. Per-task ASIDs/table roots, timer-driven context switching, and a true EL0 console-server loop remain roadmap work.
 
 ## What is working
 
@@ -18,6 +18,8 @@
 - Real EL1-to-EL0 transition with isolated executable and stack pages.
 - Lower-EL synchronous exception frame handling for `SVC` and data aborts.
 - Hardware demonstration that EL0 cannot access the kernel-owned PL011 mapping.
+- Two EL0 contexts with separate stacks and a verified cooperative A→B→A switch.
+- Mediated EL0 console output through the syscall boundary.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
@@ -62,6 +64,9 @@ Expected serial output:
 [timer] EL1 IRQ delivery: PASS (3 ticks)
 [el0] entering sandbox with isolated code and stack pages
 [el0] SVC yield round-trip: PASS
+[sched] cooperative context A -> B: PASS
+[sched] cooperative context B -> A: PASS
+A <- [console] mediated EL0 print: PASS
 [el0] direct PL011 access: DENIED by stage-1 MMU
 [el0] sandbox exception recovery: PASS
 [ready] milestone 4 EL0 isolation proof complete
