@@ -59,3 +59,7 @@ The early boot map deliberately uses a minimal three-level, 39-bit regime with t
 ## Interrupt path
 
 QEMU `virt` is pinned to GICv2 for a stable teaching target. Boot resets distributor enable, pending, priority, and trigger state; enables virtual-timer PPI 27; configures the CPU interface; then programs `CNTV_CVAL_EL0`. The current-EL-with-SPx IRQ vector saves `x0–x30`, calls the Rust dispatcher, restores the complete frame, and executes `eret`. The timer is disabled after the third CI-observed tick so the proof transcript is deterministic.
+
+## EL0 isolation proof
+
+The first 2 MiB of RAM is split into 4 KiB L3 pages. Kernel pages remain privileged; the demo task receives one read/execute code page and one read/write, execute-never stack page. `eret` enters EL0t with `SP_EL0` and `ELR_EL1` initialized. An `SVC` returns through the lower-AArch64 synchronous vector. A subsequent store to the privileged PL011 device mapping produces an EL0 data abort; EL1 records the denial, redirects `ELR_EL1` to the recovery label, and safely returns to the sandbox.

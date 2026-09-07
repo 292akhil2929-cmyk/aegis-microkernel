@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the kernel boots at EL1, enables an early stage-1 MMU map, installs a complete AArch64 exception-vector table, receives periodic GICv2 generic-timer IRQs, and runs the same allocator, mapping-policy, capability, syscall-authorization, scheduler, and synchronous-rendezvous cores that are host-tested. EL0 task launch, hardware page-table materialization per task, scheduler-driven context switching, and user-space servers remain roadmap work; this repository does not claim those phases are complete.
+> Current milestone: the kernel boots at EL1, enables page-level stage-1 mappings, receives periodic GICv2 timer IRQs, and launches an EL0 sandbox with only a user-code page and stack page. The sandbox completes an `SVC` round trip, while a direct PL011 write is denied by hardware and recovered through the lower-EL exception path. Per-task ASIDs/table roots, scheduler-driven task switching, and user-space servers remain roadmap work.
 
 ## What is working
 
@@ -15,6 +15,9 @@
 - 16-entry, 2 KiB-aligned EL1 exception-vector table with ESR/ELR reporting.
 - GICv2 CPU/distributor initialization and 10 Hz ARM virtual-timer interrupts.
 - IRQ entry preserves all 31 general-purpose registers before Rust dispatch and returns with `eret`.
+- Real EL1-to-EL0 transition with isolated executable and stack pages.
+- Lower-EL synchronous exception frame handling for `SVC` and data aborts.
+- Hardware demonstration that EL0 cannot access the kernel-owned PL011 mapping.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
@@ -57,6 +60,11 @@ Expected serial output:
 [timer] enabling GICv2 virtual timer at 10 Hz
 [ready] milestone 3 interrupt bring-up; waiting for timer IRQs
 [timer] EL1 IRQ delivery: PASS (3 ticks)
+[el0] entering sandbox with isolated code and stack pages
+[el0] SVC yield round-trip: PASS
+[el0] direct PL011 access: DENIED by stage-1 MMU
+[el0] sandbox exception recovery: PASS
+[ready] milestone 4 EL0 isolation proof complete
 ```
 
 Exit QEMU with `Ctrl+A`, then `X`.
