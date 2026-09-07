@@ -13,7 +13,7 @@
 - PL011 serial output at `0x0900_0000`.
 - Active 39-bit, 4 KiB-granule stage-1 translation with separate Device and Normal memory attributes.
 - 16-entry, 2 KiB-aligned EL1 exception-vector table with ESR/ELR reporting.
-- GICv2 CPU/distributor initialization and 10 Hz ARM physical-timer interrupts.
+- GICv2 CPU/distributor initialization and 10 Hz ARM virtual-timer interrupts.
 - IRQ entry preserves all 31 general-purpose registers before Rust dispatch and returns with `eret`.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
@@ -54,7 +54,7 @@ Expected serial output:
 [ipc] synchronous rendezvous self-test: PASS
 [syscall] typed endpoint authorization: PASS
 [sched] round-robin policy self-test: PASS
-[timer] enabling GICv2 physical timer at 10 Hz
+[timer] enabling GICv2 virtual timer at 10 Hz
 [ready] milestone 3 interrupt bring-up; waiting for timer IRQs
 [timer] EL1 IRQ delivery: PASS (3 ticks)
 ```

@@ -148,7 +148,7 @@ pub extern "C" fn kernel_main() -> ! {
         "[sched] round-robin policy self-test: {}",
         if schedule_ok { "PASS" } else { "FAIL" }
     );
-    println!("[timer] enabling GICv2 physical timer at 10 Hz");
+    println!("[timer] enabling GICv2 virtual timer at 10 Hz");
     interrupt::init(10);
     println!("[ready] milestone 3 interrupt bring-up; waiting for timer IRQs");
 
