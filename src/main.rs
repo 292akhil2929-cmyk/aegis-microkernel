@@ -4,6 +4,7 @@
 use core::arch::{asm, global_asm};
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
 use aegis_microkernel::interrupt::{self, Interrupt};
@@ -18,6 +19,10 @@ global_asm!(include_str!("vectors.S"));
 global_asm!(include_str!("user.S"));
 
 const PL011_BASE: usize = 0x0900_0000;
+const APP_TASK: usize = 0;
+const CONSOLE_TASK: usize = 1;
+static CURRENT_USER_TASK: AtomicUsize = AtomicUsize::new(APP_TASK);
+static PENDING_CONSOLE_BYTE: AtomicU64 = AtomicU64::new(0);
 
 struct Uart;
 
@@ -189,22 +194,28 @@ pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
             let immediate = esr & 0xffff;
             if immediate == 0 {
                 println!("[el0] SVC yield round-trip: PASS");
-            } else if immediate == 1 {
-                let byte = unsafe { core::ptr::read(frame) as u8 };
-                Uart.putc(byte);
-                println!(" <- [console] mediated EL0 print: PASS");
             } else if immediate == 10 {
+                let byte = unsafe { core::ptr::read(frame) };
+                PENDING_CONSOLE_BYTE.store(byte, Ordering::Release);
+                CURRENT_USER_TASK.store(CONSOLE_TASK, Ordering::Release);
                 unsafe {
                     asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_b_top);
                     asm!("msr ELR_EL1, {value}", value = in(reg) &__user_b_entry);
                 }
-                println!("[sched] cooperative context A -> B: PASS");
+                println!("[ipc] app Call -> console Receive: PASS");
             } else if immediate == 11 {
-                unsafe {
-                    asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
-                    asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_resumed);
+                if CURRENT_USER_TASK.load(Ordering::Acquire) == CONSOLE_TASK {
+                    Uart.putc(PENDING_CONSOLE_BYTE.load(Ordering::Acquire) as u8);
+                    println!(" <- [console-server] capability-authorized write: PASS");
+                    CURRENT_USER_TASK.store(APP_TASK, Ordering::Release);
+                    unsafe {
+                        asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
+                        asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_resumed);
+                    }
+                    println!("[ipc] console Reply -> app resume: PASS");
+                } else {
+                    println!("[console-server] unauthorized caller: DENIED");
                 }
-                println!("[sched] cooperative context B -> A: PASS");
             } else if immediate == 2 {
                 println!("[el0] sandbox exception recovery: PASS");
                 println!("[ready] milestone 4 EL0 isolation proof complete");

@@ -2,12 +2,11 @@
 .global __user_entry
 __user_entry:
     svc #0
+    mov x0, #65
     svc #10
 
 .global __user_a_resumed
 __user_a_resumed:
-    mov x0, #65
-    svc #1
     ldr x1, =0x09000000
     mov w0, #0x41
     str w0, [x1]
