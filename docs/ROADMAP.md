@@ -6,7 +6,7 @@
 | 3–4 | frame allocator and 4 KiB page tables | **In progress:** allocator and early MMU active; remaining per-task table materialization and fine-grained W^X kernel mappings |
 | 5–6 | EL0 tasks and timer scheduler | **In progress:** two EL0 contexts/stacks, cooperative switching, SVC/data-abort recovery, GICv2 timer IRQs, and register-safe vectors; remaining complete saved-context switching and preemption |
 | 7–9 | LeaseTree capabilities and IPC syscalls | denial, attenuation, transfer, stale-cap, and subtree-revocation tests |
-| 10–11 | root task, console server, sandbox app | **In progress:** app→console Call/Reply and PL011 denial proven; remaining root-task creation flow, queued clients, and live revocation |
+| 10–11 | root task, console server, sandbox app | **In progress:** live CSpaces, app→console Call/Reply, typed MMIO authorization, PL011 denial, and subtree revocation proven; remaining dynamic root-task creation and queued clients |
 | 12–13 | benchmarks and hardening | cycle histograms, p50/p95/p99, context switch baseline, reproducible config |
 | 14 | report and demo | 4–8 page paper, architecture figures, tagged release, recorded QEMU demo |
 
