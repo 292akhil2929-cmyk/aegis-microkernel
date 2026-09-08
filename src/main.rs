@@ -4,13 +4,13 @@
 use core::arch::{asm, global_asm};
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
 use aegis_microkernel::interrupt::{self, Interrupt};
 use aegis_microkernel::ipc::{IpcOutcome, Message, RendezvousIpc};
 use aegis_microkernel::memory::{FrameAllocator, PAGE_SIZE};
 use aegis_microkernel::paging::{PagePermissions, page_descriptor};
+use aegis_microkernel::runtime;
 use aegis_microkernel::scheduler::{Scheduler, UserContext};
 use aegis_microkernel::syscall::authorize_endpoint;
 
@@ -19,11 +19,6 @@ global_asm!(include_str!("vectors.S"));
 global_asm!(include_str!("user.S"));
 
 const PL011_BASE: usize = 0x0900_0000;
-const APP_TASK: usize = 0;
-const CONSOLE_TASK: usize = 1;
-static CURRENT_USER_TASK: AtomicUsize = AtomicUsize::new(APP_TASK);
-static PENDING_CONSOLE_BYTE: AtomicU64 = AtomicU64::new(0);
-static CONSOLE_GRANT_ACTIVE: AtomicBool = AtomicBool::new(true);
 
 struct Uart;
 
@@ -167,6 +162,7 @@ pub extern "C" fn kernel_main() -> ! {
     while interrupt::ticks() < 3 {
         unsafe { asm!("wfi") };
     }
+    runtime::initialize().unwrap();
     println!("[el0] entering sandbox with isolated code and stack pages");
     unsafe { launch_user_demo() }
 }
@@ -197,30 +193,33 @@ pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
                 println!("[el0] SVC yield round-trip: PASS");
             } else if immediate == 10 {
                 let byte = unsafe { core::ptr::read(frame) };
-                PENDING_CONSOLE_BYTE.store(byte, Ordering::Release);
-                CURRENT_USER_TASK.store(CONSOLE_TASK, Ordering::Release);
+                if runtime::app_call(byte as u8).is_err() {
+                    println!("[caps] post-revocation console Call: DENIED");
+                    return;
+                }
                 unsafe {
                     asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_b_top);
                     asm!("msr ELR_EL1, {value}", value = in(reg) &__user_b_entry);
                 }
                 println!("[ipc] app Call -> console Receive: PASS");
             } else if immediate == 11 {
-                if CURRENT_USER_TASK.load(Ordering::Acquire) == CONSOLE_TASK {
-                    Uart.putc(PENDING_CONSOLE_BYTE.load(Ordering::Acquire) as u8);
+                if let Ok((byte, revoked)) = runtime::console_reply_and_revoke() {
+                    Uart.putc(byte);
                     println!(" <- [console-server] capability-authorized write: PASS");
-                    CURRENT_USER_TASK.store(APP_TASK, Ordering::Release);
                     unsafe {
                         asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
                         asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_resumed);
                     }
                     println!("[ipc] console Reply -> app resume: PASS");
-                    CONSOLE_GRANT_ACTIVE.store(false, Ordering::Release);
-                    println!("[caps] root revoked console grant subtree: PASS");
+                    println!(
+                        "[caps] root revoked console grant subtree: PASS ({})",
+                        revoked
+                    );
                 } else {
                     println!("[console-server] unauthorized caller: DENIED");
                 }
             } else if immediate == 12 {
-                if CONSOLE_GRANT_ACTIVE.load(Ordering::Acquire) {
+                if runtime::app_call(b'B').is_ok() {
                     println!("[caps] revoked call unexpectedly authorized: FAIL");
                 } else {
                     println!("[caps] post-revocation console Call: DENIED");

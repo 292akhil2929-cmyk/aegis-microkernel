@@ -70,6 +70,18 @@ pub fn authorize_frame<const TASKS: usize, const SLOTS: usize, const NODES: usiz
     }
 }
 
+pub fn authorize_mmio<const TASKS: usize, const SLOTS: usize, const NODES: usize>(
+    capabilities: &CapabilitySystem<TASKS, SLOTS, NODES>,
+    caller: TaskId,
+    slot: usize,
+    required: Rights,
+) -> Result<(u64, u16), SyscallError> {
+    match capabilities.resolve(caller, slot, required)?.object {
+        Object::Mmio { base, pages } => Ok((base, pages)),
+        _ => Err(SyscallError::WrongObjectType),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
