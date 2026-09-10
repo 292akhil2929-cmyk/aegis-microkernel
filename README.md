@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: timer IRQs now preempt an executing EL0 task, save all 31 general-purpose registers, switch to a second EL0 context, and restore the first context before its Call/Reply flow resumes. Per-task ASIDs/table roots, general runnable-queue integration, and multiple queued hardware clients remain roadmap work.
+> Current milestone: timer IRQs now save the executing EL0 task's integer exception context into the live round-robin scheduler, select the next runnable task, and restore its GPR and exception-return state. The QEMU proof resumes task A at its interrupted instruction after task B signals through user memory. Per-task ASIDs/table roots, FP/SIMD context, scheduler-driven IPC blocking, and multiple queued hardware clients remain roadmap work.
 
 ## What is working
 
@@ -19,7 +19,7 @@
 - Lower-EL synchronous exception frame handling for `SVC` and data aborts.
 - Hardware demonstration that EL0 cannot access the kernel-owned PL011 mapping.
 - Two EL0 contexts with separate stacks and a verified cooperative A→B→A switch.
-- Timer-preemptive EL0 A→B→A frame switching with verified callee-saved register integrity.
+- Timer-preemptive EL0 A→B→A switching through the runnable queue, with full `UserContext` persistence and verified callee-saved register integrity.
 - Synchronous EL0 app→console Call/Receive and console→app Reply flow.
 - Console writes restricted to the server execution identity.
 - Live root/console/app CSpaces used by the hardware EL0 path—no demonstration grant flag.
@@ -39,7 +39,7 @@ See [the architecture](docs/ARCHITECTURE.md) and [the semester gates](docs/ROADM
 
 ## Verification
 
-CI performs three distinct checks on every push: five host-side mechanism tests, an optimized ARM64 cross-build, and a real QEMU `virt` boot whose UART transcript must contain the kernel banner, sandbox denial, and rendezvous `PASS` line. This is milestone evidence, not a claim that later roadmap phases are implemented.
+CI performs three distinct checks on every push: host-side mechanism tests, an optimized ARM64 cross-build, and a real QEMU `virt` boot whose UART transcript must contain the kernel banner and every required scheduler, isolation, capability, and rendezvous `PASS` line. This is milestone evidence, not a claim that later roadmap phases are implemented.
 
 ## Build
 
@@ -68,8 +68,8 @@ Expected serial output:
 [ready] milestone 3 interrupt bring-up; waiting for timer IRQs
 [timer] EL1 IRQ delivery: PASS (3 ticks)
 [el0] entering sandbox with isolated code and stack pages
-[preempt] timer switched task A -> B: PASS
-[preempt] timer restored task B -> A: PASS
+[preempt] runnable scheduler selected task A -> B: PASS
+[preempt] runnable scheduler restored task B -> A: PASS
 [el0] SVC yield round-trip: PASS
 [preempt] callee-saved register integrity: PASS
 [ipc] app Call -> console Receive: PASS

@@ -43,7 +43,7 @@ QEMU `-kernel` -> `_start` at 0x4008_0000
 
 ## Kernel / user boundary
 
-The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements the early hardware MMU map, EL0 entry, GIC timer delivery, full general-purpose-register exception frames, a two-context preemption proof, and tested allocator, mapping, scheduler, syscall, capability, and rendezvous cores. Per-task hardware tables, ASIDs, and integration with the general runnable queue remain explicit next milestones.
+The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements the early hardware MMU map, EL0 entry, GIC timer delivery, integer exception task contexts, live runnable-queue selection, and tested allocator, mapping, syscall, capability, and rendezvous cores. Per-task hardware tables, ASIDs, FP/SIMD context, and scheduler-driven IPC state transitions remain explicit next milestones.
 
 ## Memory bring-up
 
@@ -71,3 +71,5 @@ Milestone 8 removes the temporary authorization flag. A single-core runtime owns
 Milestone 9 connects that runtime to `RendezvousIpc`. An app Call queues its TCB identity when no receiver waits; console Receive transfers the four-register message directly and marks the app reply-blocked. The server receives one reply target, and Reply atomically consumes it while waking the app. A repeated Reply fails because the one-shot authority is gone.
 
 Milestone 10 replaces the lower-EL IRQ report stub with a complete `x0–x30` exception frame. Two timer ticks drive a deterministic A→B→A preemption proof using separate EL0 stacks. Task A seeds callee-saved registers before interruption, and the resumed SVC path checks them after frame restoration. This proves register-safe timer preemption, but it is not yet a general scheduler: the demo dispatcher selects two fixed contexts and both still share the early address-space root.
+
+Milestone 11 moves that mechanism behind the live `Scheduler`. Each timer IRQ copies `x0–x30`, `SP_EL0`, `ELR_EL1`, `SPSR_EL1`, and `TTBR0_EL1` into the current task's `UserContext`; round-robin policy chooses the next runnable task; and the dispatcher restores that context before `eret`. Task B writes a flag in a user-accessible stack page, allowing task A to resume at the exact interrupted loop instruction and progress naturally. The two demo tasks still share one `TTBR0_EL1`, and synchronous IPC handoffs still direct the next EL0 entry explicitly rather than blocking and waking scheduler tasks.

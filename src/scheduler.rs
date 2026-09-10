@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_architectural_context_round_trips() {
+    fn integer_exception_context_round_trips() {
         let mut scheduler = Scheduler::<2>::new();
         let task = scheduler.spawn(UserContext::empty()).unwrap();
         let mut context = UserContext::empty();
