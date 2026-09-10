@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: live kernel-owned LeaseTree CSpaces authorize the EL0 app's endpoint Call and the console server's typed MMIO write. Root revocation invalidates the real endpoint derivation subtree, so an identical retry fails capability resolution before dispatch. Per-task ASIDs/table roots, queued multi-client hardware contexts, and timer-driven switching remain roadmap work.
+> Current milestone: the live EL0 Call/Reply path now uses both LeaseTree CSpaces and the real rendezvous endpoint state machine. Callers become reply-blocked, servers receive from endpoint inboxes, and one-shot replies alone restore caller runnability. Per-task ASIDs/table roots, multiple queued hardware clients, and timer-driven switching remain roadmap work.
 
 ## What is working
 
@@ -23,6 +23,7 @@
 - Console writes restricted to the server execution identity.
 - Live root/console/app CSpaces used by the hardware EL0 path—no demonstration grant flag.
 - Typed endpoint and MMIO resolution on every service operation.
+- Real endpoint sender queues, receiver inboxes, reply-blocked callers, and one-shot reply authority.
 - Deterministic physical-frame allocator with reservation, exhaustion, and double-free checks.
 - W^X-enforcing AArch64 page-descriptor builder and fixed-capacity address-space mapping policy.
 - Fixed-capacity per-task CSpaces with typed kernel objects and explicit rights.
