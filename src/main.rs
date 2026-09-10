@@ -2,8 +2,10 @@
 #![no_main]
 
 use core::arch::{asm, global_asm};
+use core::cell::UnsafeCell;
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use aegis_microkernel::capability::{CapabilitySystem, Object, Rights};
 use aegis_microkernel::interrupt::{self, Interrupt};
@@ -19,6 +21,11 @@ global_asm!(include_str!("vectors.S"));
 global_asm!(include_str!("user.S"));
 
 const PL011_BASE: usize = 0x0900_0000;
+
+struct SavedFrame(UnsafeCell<[u64; 31]>);
+unsafe impl Sync for SavedFrame {}
+static SAVED_APP_FRAME: SavedFrame = SavedFrame(UnsafeCell::new([0; 31]));
+static PREEMPT_PHASE: AtomicUsize = AtomicUsize::new(0);
 
 struct Uart;
 
@@ -58,6 +65,8 @@ unsafe extern "C" {
     static __user_b_entry: u8;
     static __user_stack_a_top: u8;
     static __user_stack_b_top: u8;
+    static __user_a_after_preempt: u8;
+    static __preempt_b_entry: u8;
     fn launch_user_demo() -> !;
 }
 
@@ -163,6 +172,8 @@ pub extern "C" fn kernel_main() -> ! {
         unsafe { asm!("wfi") };
     }
     runtime::initialize().unwrap();
+    PREEMPT_PHASE.store(0, Ordering::Release);
+    interrupt::init(20);
     println!("[el0] entering sandbox with isolated code and stack pages");
     unsafe { launch_user_demo() }
 }
@@ -183,6 +194,34 @@ pub extern "C" fn irq_dispatch() {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn lower_irq_dispatch(frame: *mut u64) {
+    match interrupt::acknowledge() {
+        Interrupt::Timer { .. } => match PREEMPT_PHASE.load(Ordering::Acquire) {
+            0 => unsafe {
+                core::ptr::copy_nonoverlapping(frame, (*SAVED_APP_FRAME.0.get()).as_mut_ptr(), 31);
+                asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_b_top);
+                asm!("msr ELR_EL1, {value}", value = in(reg) &__preempt_b_entry);
+                PREEMPT_PHASE.store(1, Ordering::Release);
+                println!("[preempt] timer switched task A -> B: PASS");
+            },
+            1 => unsafe {
+                core::ptr::copy_nonoverlapping((*SAVED_APP_FRAME.0.get()).as_ptr(), frame, 31);
+                asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
+                asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_after_preempt);
+                PREEMPT_PHASE.store(2, Ordering::Release);
+                interrupt::stop_timer();
+                println!("[preempt] timer restored task B -> A: PASS");
+            },
+            _ => interrupt::stop_timer(),
+        },
+        Interrupt::Unknown { id } => {
+            interrupt::stop_timer();
+            println!("[irq] unexpected lower-EL interrupt id={}", id);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
     let esr: u64;
     unsafe { asm!("mrs {value}, ESR_EL1", value = out(reg) esr) };
@@ -191,6 +230,15 @@ pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
             let immediate = esr & 0xffff;
             if immediate == 0 {
                 println!("[el0] SVC yield round-trip: PASS");
+                let registers_ok = unsafe {
+                    core::ptr::read(frame.add(19)) == 0x19
+                        && core::ptr::read(frame.add(20)) == 0x20
+                        && core::ptr::read(frame.add(21)) == 0x21
+                };
+                println!(
+                    "[preempt] callee-saved register integrity: {}",
+                    if registers_ok { "PASS" } else { "FAIL" }
+                );
             } else if immediate == 10 {
                 let byte = unsafe { core::ptr::read(frame) };
                 if runtime::app_call(byte as u8).is_err() {

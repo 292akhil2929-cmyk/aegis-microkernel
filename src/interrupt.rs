@@ -11,6 +11,7 @@ static TIMER_PERIOD: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 pub fn init(periodic_hz: u64) {
+    TIMER_TICKS.store(0, Ordering::Relaxed);
     unsafe {
         // Reset the QEMU GICv2 state before admitting PPI 27.
         write32(GICD_BASE, 0);
