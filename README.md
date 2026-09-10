@@ -4,7 +4,7 @@
 
 **Aegis** is a capability-first ARM64 teaching microkernel for QEMU `virt`, built as a semester capstone around phone-style application sandboxing. It is inspired by seL4's small-kernel and explicit-authority principles, but uses an original, deliberately compact **LeaseTree** capability design.
 
-> Current milestone: the live EL0 Call/Reply path now uses both LeaseTree CSpaces and the real rendezvous endpoint state machine. Callers become reply-blocked, servers receive from endpoint inboxes, and one-shot replies alone restore caller runnability. Per-task ASIDs/table roots, multiple queued hardware clients, and timer-driven switching remain roadmap work.
+> Current milestone: timer IRQs now preempt an executing EL0 task, save all 31 general-purpose registers, switch to a second EL0 context, and restore the first context before its Call/Reply flow resumes. Per-task ASIDs/table roots, general runnable-queue integration, and multiple queued hardware clients remain roadmap work.
 
 ## What is working
 
@@ -19,6 +19,7 @@
 - Lower-EL synchronous exception frame handling for `SVC` and data aborts.
 - Hardware demonstration that EL0 cannot access the kernel-owned PL011 mapping.
 - Two EL0 contexts with separate stacks and a verified cooperative A→B→A switch.
+- Timer-preemptive EL0 A→B→A frame switching with verified callee-saved register integrity.
 - Synchronous EL0 app→console Call/Receive and console→app Reply flow.
 - Console writes restricted to the server execution identity.
 - Live root/console/app CSpaces used by the hardware EL0 path—no demonstration grant flag.
@@ -67,7 +68,10 @@ Expected serial output:
 [ready] milestone 3 interrupt bring-up; waiting for timer IRQs
 [timer] EL1 IRQ delivery: PASS (3 ticks)
 [el0] entering sandbox with isolated code and stack pages
+[preempt] timer switched task A -> B: PASS
+[preempt] timer restored task B -> A: PASS
 [el0] SVC yield round-trip: PASS
+[preempt] callee-saved register integrity: PASS
 [ipc] app Call -> console Receive: PASS
 A <- [console-server] capability-authorized write: PASS
 [ipc] console Reply -> app resume: PASS

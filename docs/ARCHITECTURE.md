@@ -43,7 +43,7 @@ QEMU `-kernel` -> `_start` at 0x4008_0000
 
 ## Kernel / user boundary
 
-The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements the early hardware MMU map and tests the physical allocator, mapping policy, task scheduler, typed syscall authorization, capability system, and rendezvous core. Per-task hardware tables, EL0 entry, GIC, and timer-driven context switching are explicit next milestones.
+The intended completed system keeps only scheduling, address-space switching, exception/interrupt dispatch, capability lookup, and endpoint rendezvous in EL1. UART, allocation policy, naming, and any toy filesystem live in EL0 servers. The current milestone implements the early hardware MMU map, EL0 entry, GIC timer delivery, full general-purpose-register exception frames, a two-context preemption proof, and tested allocator, mapping, scheduler, syscall, capability, and rendezvous cores. Per-task hardware tables, ASIDs, and integration with the general runnable queue remain explicit next milestones.
 
 ## Memory bring-up
 
@@ -58,7 +58,7 @@ The early boot map deliberately uses a minimal three-level, 39-bit regime with t
 
 ## Interrupt path
 
-QEMU `virt` is pinned to GICv2 for a stable teaching target. Boot resets distributor enable, pending, priority, and trigger state; enables virtual-timer PPI 27; configures the CPU interface; then programs `CNTV_CVAL_EL0`. The current-EL-with-SPx IRQ vector saves `x0–x30`, calls the Rust dispatcher, restores the complete frame, and executes `eret`. The timer is disabled after the third CI-observed tick so the proof transcript is deterministic.
+QEMU `virt` is pinned to GICv2 for a stable teaching target. Boot resets distributor enable, pending, priority, and trigger state; enables virtual-timer PPI 27; configures the CPU interface; then programs `CNTV_CVAL_EL0`. Both the current-EL-with-SPx and lower-EL-AArch64 IRQ vectors save `x0–x30`, call a Rust dispatcher, restore the complete general-purpose-register frame, and execute `eret`. The EL1 bring-up timer stops after the third CI-observed tick. A fresh EL0 timer then preempts task A, redirects execution to task B on its own stack, and on the following tick restores task A's saved frame. The proof stops the timer before resuming the syscall demonstration, keeping the transcript deterministic.
 
 ## EL0 isolation proof
 
@@ -69,3 +69,5 @@ Milestone 6 maps a second user stack and uses the two contexts as an app and con
 Milestone 8 removes the temporary authorization flag. A single-core runtime owns the actual `CapabilitySystem`: root holds UART and endpoint roots, console holds an attenuated UART-write capability, and the app holds an attenuated endpoint-write capability. Every live operation resolves its typed slot. Revoking root's endpoint slot invalidates both the root and derived app nodes; the subsequent EL0 retry therefore fails with an empty CSpace slot.
 
 Milestone 9 connects that runtime to `RendezvousIpc`. An app Call queues its TCB identity when no receiver waits; console Receive transfers the four-register message directly and marks the app reply-blocked. The server receives one reply target, and Reply atomically consumes it while waking the app. A repeated Reply fails because the one-shot authority is gone.
+
+Milestone 10 replaces the lower-EL IRQ report stub with a complete `x0–x30` exception frame. Two timer ticks drive a deterministic A→B→A preemption proof using separate EL0 stacks. Task A seeds callee-saved registers before interruption, and the resumed SVC path checks them after frame restoration. This proves register-safe timer preemption, but it is not yet a general scheduler: the demo dispatcher selects two fixed contexts and both still share the early address-space root.
