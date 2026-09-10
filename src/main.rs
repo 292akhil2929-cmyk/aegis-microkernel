@@ -22,10 +22,13 @@ global_asm!(include_str!("user.S"));
 
 const PL011_BASE: usize = 0x0900_0000;
 
-struct SavedFrame(UnsafeCell<[u64; 31]>);
-unsafe impl Sync for SavedFrame {}
-static SAVED_APP_FRAME: SavedFrame = SavedFrame(UnsafeCell::new([0; 31]));
-static PREEMPT_PHASE: AtomicUsize = AtomicUsize::new(0);
+const PREEMPT_TASK_A: usize = 0;
+const PREEMPT_TASK_B: usize = 1;
+
+struct SchedulerCell(UnsafeCell<Scheduler<2>>);
+unsafe impl Sync for SchedulerCell {}
+static LIVE_SCHEDULER: SchedulerCell = SchedulerCell(UnsafeCell::new(Scheduler::new()));
+static PREEMPT_SWITCHES: AtomicUsize = AtomicUsize::new(0);
 
 struct Uart;
 
@@ -65,7 +68,7 @@ unsafe extern "C" {
     static __user_b_entry: u8;
     static __user_stack_a_top: u8;
     static __user_stack_b_top: u8;
-    static __user_a_after_preempt: u8;
+    static __user_entry: u8;
     static __preempt_b_entry: u8;
     fn launch_user_demo() -> !;
 }
@@ -172,10 +175,45 @@ pub extern "C" fn kernel_main() -> ! {
         unsafe { asm!("wfi") };
     }
     runtime::initialize().unwrap();
-    PREEMPT_PHASE.store(0, Ordering::Release);
+    initialize_live_scheduler();
     interrupt::init(20);
     println!("[el0] entering sandbox with isolated code and stack pages");
     unsafe { launch_user_demo() }
+}
+
+fn with_live_scheduler<T>(operation: impl FnOnce(&mut Scheduler<2>) -> T) -> T {
+    // Single-core only: lower-EL IRQs arrive masked and scheduler initialization
+    // completes before EL0 interrupts are enabled.
+    unsafe { operation(&mut *LIVE_SCHEDULER.0.get()) }
+}
+
+fn initialize_live_scheduler() {
+    let ttbr0_el1: u64;
+    unsafe { asm!("mrs {value}, TTBR0_EL1", value = out(reg) ttbr0_el1) };
+    with_live_scheduler(|scheduler| {
+        *scheduler = Scheduler::new();
+        let task_a = scheduler
+            .spawn(UserContext {
+                x: [0; 31],
+                sp_el0: unsafe { &__user_stack_a_top as *const u8 as u64 },
+                elr_el1: unsafe { &__user_entry as *const u8 as u64 },
+                spsr_el1: 0,
+                ttbr0_el1,
+            })
+            .unwrap();
+        let task_b = scheduler
+            .spawn(UserContext {
+                x: [0; 31],
+                sp_el0: unsafe { &__user_stack_b_top as *const u8 as u64 },
+                elr_el1: unsafe { &__preempt_b_entry as *const u8 as u64 },
+                spsr_el1: 0,
+                ttbr0_el1,
+            })
+            .unwrap();
+        assert!(task_a == PREEMPT_TASK_A && task_b == PREEMPT_TASK_B);
+        assert!(scheduler.schedule().map(|switch| switch.next) == Some(PREEMPT_TASK_A));
+    });
+    PREEMPT_SWITCHES.store(0, Ordering::Release);
 }
 
 #[unsafe(no_mangle)]
@@ -196,29 +234,66 @@ pub extern "C" fn irq_dispatch() {
 #[unsafe(no_mangle)]
 pub extern "C" fn lower_irq_dispatch(frame: *mut u64) {
     match interrupt::acknowledge() {
-        Interrupt::Timer { .. } => match PREEMPT_PHASE.load(Ordering::Acquire) {
-            0 => unsafe {
-                core::ptr::copy_nonoverlapping(frame, (*SAVED_APP_FRAME.0.get()).as_mut_ptr(), 31);
-                asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_b_top);
-                asm!("msr ELR_EL1, {value}", value = in(reg) &__preempt_b_entry);
-                PREEMPT_PHASE.store(1, Ordering::Release);
-                println!("[preempt] timer switched task A -> B: PASS");
-            },
-            1 => unsafe {
-                core::ptr::copy_nonoverlapping((*SAVED_APP_FRAME.0.get()).as_ptr(), frame, 31);
-                asm!("msr SP_EL0, {value}", value = in(reg) &__user_stack_a_top);
-                asm!("msr ELR_EL1, {value}", value = in(reg) &__user_a_after_preempt);
-                PREEMPT_PHASE.store(2, Ordering::Release);
-                interrupt::stop_timer();
-                println!("[preempt] timer restored task B -> A: PASS");
-            },
-            _ => interrupt::stop_timer(),
-        },
+        Interrupt::Timer { .. } => {
+            let switched = unsafe { schedule_lower_frame(frame) };
+            match switched {
+                Some((PREEMPT_TASK_A, PREEMPT_TASK_B)) => {
+                    PREEMPT_SWITCHES.fetch_add(1, Ordering::AcqRel);
+                    println!("[preempt] runnable scheduler selected task A -> B: PASS");
+                }
+                Some((PREEMPT_TASK_B, PREEMPT_TASK_A)) => {
+                    PREEMPT_SWITCHES.fetch_add(1, Ordering::AcqRel);
+                    interrupt::stop_timer();
+                    println!("[preempt] runnable scheduler restored task B -> A: PASS");
+                }
+                _ => {
+                    interrupt::stop_timer();
+                    println!("[preempt] runnable scheduler selection: FAIL");
+                }
+            }
+        }
         Interrupt::Unknown { id } => {
             interrupt::stop_timer();
             println!("[irq] unexpected lower-EL interrupt id={}", id);
         }
     }
+}
+
+unsafe fn schedule_lower_frame(frame: *mut u64) -> Option<(usize, usize)> {
+    let sp_el0: u64;
+    let elr_el1: u64;
+    let spsr_el1: u64;
+    let ttbr0_el1: u64;
+    unsafe {
+        asm!("mrs {value}, SP_EL0", value = out(reg) sp_el0);
+        asm!("mrs {value}, ELR_EL1", value = out(reg) elr_el1);
+        asm!("mrs {value}, SPSR_EL1", value = out(reg) spsr_el1);
+        asm!("mrs {value}, TTBR0_EL1", value = out(reg) ttbr0_el1);
+    }
+
+    let (previous, next, next_context) = with_live_scheduler(|scheduler| {
+        let previous = scheduler.current()?;
+        let mut current_context = *scheduler.context(previous)?;
+        unsafe { core::ptr::copy_nonoverlapping(frame, current_context.x.as_mut_ptr(), 31) };
+        current_context.sp_el0 = sp_el0;
+        current_context.elr_el1 = elr_el1;
+        current_context.spsr_el1 = spsr_el1;
+        current_context.ttbr0_el1 = ttbr0_el1;
+        scheduler.save_context(previous, current_context).ok()?;
+        let next = scheduler.schedule()?.next;
+        Some((previous, next, *scheduler.context(next)?))
+    })?;
+
+    unsafe {
+        core::ptr::copy_nonoverlapping(next_context.x.as_ptr(), frame, 31);
+        asm!("msr SP_EL0, {value}", value = in(reg) next_context.sp_el0);
+        asm!("msr ELR_EL1, {value}", value = in(reg) next_context.elr_el1);
+        asm!("msr SPSR_EL1, {value}", value = in(reg) next_context.spsr_el1);
+        asm!("dsb ish");
+        asm!("msr TTBR0_EL1, {value}", value = in(reg) next_context.ttbr0_el1);
+        asm!("isb");
+    }
+    Some((previous, next))
 }
 
 #[unsafe(no_mangle)]
@@ -237,7 +312,11 @@ pub extern "C" fn lower_sync_dispatch(frame: *mut u64) {
                 };
                 println!(
                     "[preempt] callee-saved register integrity: {}",
-                    if registers_ok { "PASS" } else { "FAIL" }
+                    if registers_ok && PREEMPT_SWITCHES.load(Ordering::Acquire) == 2 {
+                        "PASS"
+                    } else {
+                        "FAIL"
+                    }
                 );
             } else if immediate == 10 {
                 let byte = unsafe { core::ptr::read(frame) };

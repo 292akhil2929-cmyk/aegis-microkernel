@@ -132,8 +132,28 @@ impl<const TASKS: usize> Scheduler<TASKS> {
         self.tasks.get(task).map(|entry| entry.runtime_ticks)
     }
 
+    pub const fn current(&self) -> Option<TaskId> {
+        self.current
+    }
+
     pub fn context(&self, task: TaskId) -> Option<&UserContext> {
-        self.tasks.get(task).map(|entry| &entry.context)
+        self.tasks
+            .get(task)
+            .filter(|entry| entry.state != TaskState::Unused)
+            .map(|entry| &entry.context)
+    }
+
+    pub fn save_context(
+        &mut self,
+        task: TaskId,
+        context: UserContext,
+    ) -> Result<(), ScheduleError> {
+        let entry = self.tasks.get_mut(task).ok_or(ScheduleError::BadTask)?;
+        if entry.state == TaskState::Unused {
+            return Err(ScheduleError::BadTask);
+        }
+        entry.context = context;
+        Ok(())
     }
 
     fn set_state(&mut self, task: TaskId, state: TaskState) -> Result<(), ScheduleError> {
@@ -177,5 +197,23 @@ mod tests {
         let task = scheduler.spawn(UserContext::empty()).unwrap();
         scheduler.block(task).unwrap();
         assert_eq!(scheduler.schedule(), None);
+    }
+
+    #[test]
+    fn complete_architectural_context_round_trips() {
+        let mut scheduler = Scheduler::<2>::new();
+        let task = scheduler.spawn(UserContext::empty()).unwrap();
+        let mut context = UserContext::empty();
+        context.x[0] = 0xa0;
+        context.x[30] = 0xae;
+        context.sp_el0 = 0x1000;
+        context.elr_el1 = 0x2000;
+        context.spsr_el1 = 0x3000;
+        context.ttbr0_el1 = 0x4000;
+        scheduler.save_context(task, context).unwrap();
+        assert_eq!(scheduler.context(task), Some(&context));
+        assert_eq!(scheduler.current(), None);
+        assert_eq!(scheduler.schedule().unwrap().next, task);
+        assert_eq!(scheduler.current(), Some(task));
     }
 }

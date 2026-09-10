@@ -35,8 +35,8 @@ jobs:
           grep -F '[syscall] typed endpoint authorization: PASS' qemu-boot.log
           grep -F '[sched] round-robin policy self-test: PASS' qemu-boot.log
           grep -F '[timer] EL1 IRQ delivery: PASS (3 ticks)' qemu-boot.log
-          grep -F '[preempt] timer switched task A -> B: PASS' qemu-boot.log
-          grep -F '[preempt] timer restored task B -> A: PASS' qemu-boot.log
+          grep -F '[preempt] runnable scheduler selected task A -> B: PASS' qemu-boot.log
+          grep -F '[preempt] runnable scheduler restored task B -> A: PASS' qemu-boot.log
           grep -F '[preempt] callee-saved register integrity: PASS' qemu-boot.log
           grep -F '[el0] SVC yield round-trip: PASS' qemu-boot.log
           grep -F '[ipc] app Call -> console Receive: PASS' qemu-boot.log

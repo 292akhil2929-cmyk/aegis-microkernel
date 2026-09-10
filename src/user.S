@@ -4,12 +4,16 @@ __user_entry:
     mov x19, #0x19
     mov x20, #0x20
     mov x21, #0x21
+    ldr x24, =__user_stack_a_top
+    sub x24, x24, #8
+    str xzr, [x24]
 .Lapp_preempt_wait:
+    ldr x25, [x24]
+    cbnz x25, .Lapp_preempted
     add x22, x22, #1
     b .Lapp_preempt_wait
 
-.global __user_a_after_preempt
-__user_a_after_preempt:
+.Lapp_preempted:
     svc #0
     mov x0, #65
     svc #10
@@ -36,6 +40,10 @@ __user_b_entry:
 .global __preempt_b_entry
 __preempt_b_entry:
     mov x19, #0xb
+    ldr x24, =__user_stack_a_top
+    sub x24, x24, #8
+    mov x25, #1
+    str x25, [x24]
 .Lpreempt_b_wait:
     add x23, x23, #1
     b .Lpreempt_b_wait
