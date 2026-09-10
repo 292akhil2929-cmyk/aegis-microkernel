@@ -16,6 +16,7 @@ pub enum ThreadState {
     Runnable,
     Sending { endpoint: usize },
     Receiving { endpoint: usize },
+    ReplyBlocked { server: ThreadId },
 }
 
 #[derive(Clone, Copy)]
@@ -23,6 +24,8 @@ struct Thread {
     state: ThreadState,
     outgoing: Message,
     inbox: Option<Message>,
+    is_call: bool,
+    reply_target: Option<ThreadId>,
 }
 
 const EMPTY_THREAD: Thread = Thread {
@@ -34,6 +37,8 @@ const EMPTY_THREAD: Thread = Thread {
         capability_slot: None,
     },
     inbox: None,
+    is_call: false,
+    reply_target: None,
 };
 
 #[derive(Clone, Copy)]
@@ -100,6 +105,7 @@ pub enum IpcError {
     BadEndpoint,
     ThreadNotRunnable,
     QueueFull,
+    NoReplyTarget,
 }
 
 pub struct RendezvousIpc<const THREADS: usize, const ENDPOINTS: usize> {
@@ -122,6 +128,7 @@ impl<const THREADS: usize, const ENDPOINTS: usize> RendezvousIpc<THREADS, ENDPOI
         message: Message,
     ) -> Result<IpcOutcome, IpcError> {
         self.ensure_runnable(sender)?;
+        self.threads[sender].is_call = false;
         let ep = self
             .endpoints
             .get_mut(endpoint)
@@ -138,6 +145,32 @@ impl<const THREADS: usize, const ENDPOINTS: usize> RendezvousIpc<THREADS, ENDPOI
         }
     }
 
+    pub fn call(
+        &mut self,
+        caller: ThreadId,
+        endpoint: usize,
+        message: Message,
+    ) -> Result<IpcOutcome, IpcError> {
+        self.ensure_runnable(caller)?;
+        self.threads[caller].is_call = true;
+        let ep = self
+            .endpoints
+            .get_mut(endpoint)
+            .ok_or(IpcError::BadEndpoint)?;
+        if let Some(receiver) = ep.receivers.pop() {
+            self.threads[receiver].inbox = Some(message);
+            self.threads[receiver].reply_target = Some(caller);
+            self.threads[receiver].state = ThreadState::Runnable;
+            self.threads[caller].state = ThreadState::ReplyBlocked { server: receiver };
+            Ok(IpcOutcome::Delivered { peer: receiver })
+        } else {
+            self.threads[caller].outgoing = message;
+            self.threads[caller].state = ThreadState::Sending { endpoint };
+            ep.senders.push(caller)?;
+            Ok(IpcOutcome::Blocked)
+        }
+    }
+
     pub fn receive(&mut self, receiver: ThreadId, endpoint: usize) -> Result<IpcOutcome, IpcError> {
         self.ensure_runnable(receiver)?;
         let ep = self
@@ -146,7 +179,12 @@ impl<const THREADS: usize, const ENDPOINTS: usize> RendezvousIpc<THREADS, ENDPOI
             .ok_or(IpcError::BadEndpoint)?;
         if let Some(sender) = ep.senders.pop() {
             let message = self.threads[sender].outgoing;
-            self.threads[sender].state = ThreadState::Runnable;
+            if self.threads[sender].is_call {
+                self.threads[sender].state = ThreadState::ReplyBlocked { server: receiver };
+                self.threads[receiver].reply_target = Some(sender);
+            } else {
+                self.threads[sender].state = ThreadState::Runnable;
+            }
             self.threads[receiver].inbox = Some(message);
             Ok(IpcOutcome::Delivered { peer: sender })
         } else {
@@ -154,6 +192,23 @@ impl<const THREADS: usize, const ENDPOINTS: usize> RendezvousIpc<THREADS, ENDPOI
             ep.receivers.push(receiver)?;
             Ok(IpcOutcome::Blocked)
         }
+    }
+
+    pub fn reply(&mut self, server: ThreadId, message: Message) -> Result<IpcOutcome, IpcError> {
+        self.ensure_runnable(server)?;
+        let client = self
+            .threads
+            .get_mut(server)
+            .ok_or(IpcError::BadThread)?
+            .reply_target
+            .take()
+            .ok_or(IpcError::NoReplyTarget)?;
+        if self.threads[client].state != (ThreadState::ReplyBlocked { server }) {
+            return Err(IpcError::NoReplyTarget);
+        }
+        self.threads[client].inbox = Some(message);
+        self.threads[client].state = ThreadState::Runnable;
+        Ok(IpcOutcome::Delivered { peer: client })
     }
 
     pub fn take_message(&mut self, thread: ThreadId) -> Option<Message> {
@@ -215,5 +270,30 @@ mod tests {
             Ok(IpcOutcome::Delivered { peer: 2 })
         );
         assert_eq!(ipc.take_message(2), Some(message));
+    }
+
+    #[test]
+    fn call_blocks_until_one_shot_reply() {
+        let mut ipc = RendezvousIpc::<3, 1>::new();
+        let request = Message {
+            label: 7,
+            length: 1,
+            registers: [42, 0, 0, 0],
+            capability_slot: None,
+        };
+        let reply = Message {
+            label: 8,
+            length: 1,
+            registers: [0, 0, 0, 0],
+            capability_slot: None,
+        };
+        assert_eq!(ipc.call(2, 0, request), Ok(IpcOutcome::Blocked));
+        assert_eq!(ipc.receive(1, 0), Ok(IpcOutcome::Delivered { peer: 2 }));
+        assert_eq!(ipc.state(2), Some(ThreadState::ReplyBlocked { server: 1 }));
+        assert_eq!(ipc.take_message(1), Some(request));
+        assert_eq!(ipc.reply(1, reply), Ok(IpcOutcome::Delivered { peer: 2 }));
+        assert_eq!(ipc.state(2), Some(ThreadState::Runnable));
+        assert_eq!(ipc.take_message(2), Some(reply));
+        assert_eq!(ipc.reply(1, reply), Err(IpcError::NoReplyTarget));
     }
 }

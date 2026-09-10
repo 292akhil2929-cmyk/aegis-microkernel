@@ -3,6 +3,7 @@
 use core::cell::UnsafeCell;
 
 use crate::capability::{CapError, CapabilitySystem, Object, Rights};
+use crate::ipc::{IpcError, IpcOutcome, Message, RendezvousIpc};
 use crate::syscall::{SyscallError, authorize_endpoint, authorize_mmio};
 
 pub const ROOT_TASK: usize = 0;
@@ -18,6 +19,7 @@ pub enum RuntimeError {
     Capability(CapError),
     Syscall(SyscallError),
     WrongTask,
+    Ipc(IpcError),
 }
 
 impl From<CapError> for RuntimeError {
@@ -32,10 +34,17 @@ impl From<SyscallError> for RuntimeError {
     }
 }
 
+impl From<IpcError> for RuntimeError {
+    fn from(value: IpcError) -> Self {
+        Self::Ipc(value)
+    }
+}
+
 struct Runtime {
     capabilities: LiveCaps,
     current_task: usize,
     pending_byte: u8,
+    ipc: RendezvousIpc<4, 2>,
 }
 
 impl Runtime {
@@ -44,6 +53,7 @@ impl Runtime {
             capabilities: LiveCaps::new(),
             current_task: APP_TASK,
             pending_byte: 0,
+            ipc: RendezvousIpc::new(),
         }
     }
 
@@ -80,7 +90,23 @@ impl Runtime {
             return Err(RuntimeError::WrongTask);
         }
         authorize_endpoint(&self.capabilities, APP_TASK, ENDPOINT_SLOT, Rights::WRITE)?;
-        self.pending_byte = byte;
+        let request = Message {
+            label: 1,
+            length: 1,
+            registers: [byte as u64, 0, 0, 0],
+            capability_slot: None,
+        };
+        if self.ipc.call(APP_TASK, 0, request)? != IpcOutcome::Blocked {
+            return Err(RuntimeError::WrongTask);
+        }
+        if self.ipc.receive(CONSOLE_TASK, 0)? != (IpcOutcome::Delivered { peer: APP_TASK }) {
+            return Err(RuntimeError::WrongTask);
+        }
+        self.pending_byte = self
+            .ipc
+            .take_message(CONSOLE_TASK)
+            .ok_or(RuntimeError::WrongTask)?
+            .registers[0] as u8;
         self.current_task = CONSOLE_TASK;
         Ok(())
     }
@@ -91,6 +117,7 @@ impl Runtime {
         }
         authorize_mmio(&self.capabilities, CONSOLE_TASK, UART_SLOT, Rights::WRITE)?;
         let byte = self.pending_byte;
+        self.ipc.reply(CONSOLE_TASK, Message::default())?;
         self.current_task = APP_TASK;
         let revoked = self.capabilities.revoke(ROOT_TASK, ENDPOINT_SLOT)?;
         Ok((byte, revoked))
@@ -125,13 +152,21 @@ pub fn console_reply_and_revoke() -> Result<(u8, usize), RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ipc::ThreadState;
 
     #[test]
     fn live_call_succeeds_then_root_revocation_blocks_retry() {
         let mut runtime = Runtime::empty();
         runtime.bootstrap().unwrap();
         runtime.app_call(b'A').unwrap();
+        assert_eq!(
+            runtime.ipc.state(APP_TASK),
+            Some(ThreadState::ReplyBlocked {
+                server: CONSOLE_TASK
+            })
+        );
         assert_eq!(runtime.console_reply_and_revoke(), Ok((b'A', 2)));
+        assert_eq!(runtime.ipc.state(APP_TASK), Some(ThreadState::Runnable));
         assert!(matches!(
             runtime.app_call(b'B'),
             Err(RuntimeError::Syscall(SyscallError::Capability(
